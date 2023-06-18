@@ -21,7 +21,7 @@ import logging
 import os
 import sys
 import time
-from typing import Tuple
+from typing import Sequence, Tuple
 
 # Replacement for tf.contrib.layers which were removed from TF 2.x.
 import numpy as np
@@ -85,14 +85,42 @@ Hyperparameters = collections.namedtuple("Hyperparameters",
                                          ])
 
 
-def load_data(path: str):
+def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[int], Sequence[int], np.ndarray, np.ndarray]:
     """Load data from path."""
-    df = pd.read_csv(path, parse_dates=False, index_col=0)
+    df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
     ages = df.index.astype(int)
     years = df.columns.astype(int)
-    # random features for now
-    features = np.random.randn(len(years) + 200, 5)
-    return years, ages, df.values, features
+    features_dfs = []
+    for features_path in features_paths:
+        features_dfs.append(load_features(features_path, years))
+    features_df = pd.concat(features_dfs, axis=0)
+    features_df.to_csv("features.csv")
+    return years, ages, df.values, features_df.values
+
+
+def load_features(features_path: str, rates_years: Sequence[int]) -> pd.DataFrame:
+    """Loads a set of features from a CSV file with years in the 1st column.
+    
+    Extrapolates data flat forward and backward to cover the period from min(rates_years) to max(max(rates_years), MAX_EXTRAPOLATION_YEAR).
+    """
+    min_feature_year = min(rates_years)
+    max_feature_year = max(max(rates_years), MAX_EXTRAPOLATION_YEAR)
+    features = pd.read_csv(features_path, index_col=0)
+    min_feature_year_provided = min(features.index)
+    max_feature_year_provided = max(features.index)
+    if min_feature_year > min_feature_year_provided:
+        features = features.loc[min_feature_year:]
+    else:
+        for yr in range(min_feature_year, min_feature_year_provided):
+            features.loc[yr] = features.loc[min_feature_year_provided]
+        features = features.sort_index()
+    if max_feature_year < max_feature_year_provided:
+        features = features.loc[:max_feature_year]
+    else:
+        for yr in range(max_feature_year_provided + 1, max_feature_year + 1):
+            features.loc[yr] = features.loc[max_feature_year_provided]
+        features = features.sort_index()
+    return features
 
 
 def create_sequence_queue(rates: np.ndarray, features: np.ndarray, sequence_length, batch_size=None, shuffle=True, num_epochs=None) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -247,10 +275,10 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
         save_checkpoints: Whether to save checkpoints with the model.
     """
     rates_to_inputs = get_input_transformation_function(hyperparams.trans_name)
-    basename = "%s-%s-mortality-period-qx-%d.csv" % (
+    rates_basename = "%s-%s-mortality-period-qx-%d.csv" % (
         country, sex, MAX_YEAR_HIST)
-    years, ages, mortality_rates, features = load_data(
-        os.path.join("sources", basename))
+    rates_path = os.path.join("sources", rates_basename)    
+    years, ages, mortality_rates, features = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
     if hyperparams.trans_name in ["log", "logit"]:
         # Zero rates are not handled well when using those input transformations.
         mortality_rates = np.clip(mortality_rates, 1e-5, None)
