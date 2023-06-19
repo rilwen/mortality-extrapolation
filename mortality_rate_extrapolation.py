@@ -85,17 +85,25 @@ Hyperparameters = collections.namedtuple("Hyperparameters",
                                          ])
 
 
-def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[int], Sequence[int], np.ndarray, np.ndarray]:
-    """Load data from path."""
-    df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
-    ages = df.index.astype(int)
-    years = df.columns.astype(int)
+def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[int], Sequence[int], np.ndarray, np.ndarray, Sequence[str]]:
+    """Load data from path.
+    
+    Returns:
+        Sequence of years with rates
+        Sequence of age groups with rates
+        Mortality rates values
+        Features values
+        Sequence of feature labels
+    """
+    rates_df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
+    ages = rates_df.index.astype(int)
+    years = rates_df.columns.astype(int)
     features_dfs = []
     for features_path in features_paths:
         features_dfs.append(load_features(features_path, years))
     features_df = pd.concat(features_dfs, axis=0)
     features_df.to_csv("features.csv")
-    return years, ages, df.values, features_df.values
+    return years, ages, rates_df.values, features_df.values, features_df.columns
 
 
 def load_features(features_path: str, rates_years: Sequence[int]) -> pd.DataFrame:
@@ -120,6 +128,9 @@ def load_features(features_path: str, rates_years: Sequence[int]) -> pd.DataFram
         for yr in range(max_feature_year_provided + 1, max_feature_year + 1):
             features.loc[yr] = features.loc[max_feature_year_provided]
         features = features.sort_index()
+    assert features.index.min() == min_feature_year
+    assert features.index.max() == max_feature_year
+    assert len(features) == max_feature_year - min_feature_year + 1, f"Gaps or duplicate years in features data in {features_path}!"
     return features
 
 
@@ -278,20 +289,22 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
     rates_basename = "%s-%s-mortality-period-qx-%d.csv" % (
         country, sex, MAX_YEAR_HIST)
     rates_path = os.path.join("sources", rates_basename)    
-    years, ages, mortality_rates, features = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
+    years, ages, mortality_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
     if hyperparams.trans_name in ["log", "logit"]:
         # Zero rates are not handled well when using those input transformations.
-        mortality_rates = np.clip(mortality_rates, 1e-5, None)
+        mortality_rates = np.clip(mortality_rates, 1e-5, None)    
     logging.info("Mortality rates shape: %s", mortality_rates.shape)
     logging.debug("Mortality rates values: %s", mortality_rates)
     logging.debug("Features shape: %s", features.shape)
     logging.debug("Years == %s", years)
     logging.debug("Ages == %s", ages)
+    logging.info("Features labels == %s", features_labels)
     num_ages = len(ages)
     num_years = len(years)
     assert num_ages == mortality_rates.shape[0]
     assert num_years == mortality_rates.shape[1]
-    assert num_years <= features.shape[0]
+    assert features.shape[0] == MAX_EXTRAPOLATION_YEAR - min(years) + 1, (features.shape, min(years), MAX_EXTRAPOLATION_YEAR)
+    features_dim = features.shape[1]
     max_input_year = max(years)    
 
     input_size = hyperparams.input_size
@@ -357,12 +370,14 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
         # Extrapolate last input_size rates from every age group.
         # Do it age-group-by-age-group to speed up calculation of gradients.
         extrap_input_rates = tf.constant(mortality_rates[:, -input_size:])
-        extrap_input_features_data = features[mortality_rates.shape[1]-input_size:, :]
+        num_extrapolated_years = MAX_EXTRAPOLATION_YEAR - max_input_year
+        extrap_input_features_data = features[mortality_rates.shape[1]-input_size:, :]  # has dimension num_extrapolated_years x features_dimension
+        assert extrap_input_features_data.shape == (num_extrapolated_years + input_size, features_dim), f"{extrap_input_features_data.shape} != {(num_extrapolated_years, features_dim)}"
         total_num_features = np.prod(extrap_input_features_data.shape)
-        extrap_input_features_data = np.reshape(extrap_input_features_data, (1, total_num_features))
+        extrap_input_features_data = np.reshape(extrap_input_features_data, (1, total_num_features))  # All features from the same year are together
         extrap_input_features = tf.constant(extrap_input_features_data)
         extrap_input_features = tf.tile(extrap_input_features, [num_ages, 1])
-        num_extrapolated_years = MAX_EXTRAPOLATION_YEAR - max_input_year
+        
         #extrap_outputs, extrap_logits = build_rnn(cell_nn_builder, extrap_input_rates, extrap_input_features, output_size=num_extrapolated_years)
         print(f"Rates: {extrap_input_rates.shape}")
         print(f"Features: {extrap_input_features.shape}")
@@ -494,27 +509,29 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
             logging.debug("Extrapolation outputs: %s", extrap_output_data)
             for i, year in enumerate(range(max_input_year + 1, MAX_EXTRAPOLATION_YEAR + 1)):
                 df[year] = extrap_output_data[:, i]
-            df.to_csv(os.path.join(results_dir, "predicted-" + basename))
+            df.to_csv(os.path.join(results_dir, "predicted-" + rates_basename))
             logging.info("Saved extrapolation results.")
             if do_gradients:
                 extrap_input_years = years[-input_size:]
                 extrap_output_years = range(
                     max_input_year + 1, MAX_EXTRAPOLATION_YEAR_GRAD + 1)
+                extrap_output_years_features = range(
+                    max_input_year + 1 - input_size, MAX_EXTRAPOLATION_YEAR + 1)
                 for age in AGES_GRAD:
                     age_idx = age - min(ages)  # Assumes ages have no gaps.
                     df = pd.DataFrame(index=extrap_output_years,
-                                      columns=extrap_input_years)
+                                      columns=list(extrap_input_years) + [f"{label}-{year}" for year, label in itertools.product(extrap_output_years_features, features_labels)])
                     for j, year in enumerate(extrap_output_years):
                         gradient_mask_data = np.zeros(
                             [num_ages, num_extrapolated_years], dtype=float)
                         gradient_mask_data[age_idx, j] = 1.0
                         extrap_gradient_data = sess.run(extrap_gradient, feed_dict={
                                                         gradient_mask: gradient_mask_data})
-                        assert extrap_gradient_data.shape == (
-                            num_ages, input_size)
+                        expected_extrap_gradient_data_shape = (num_ages, input_size + total_num_features)
+                        assert extrap_gradient_data.shape == expected_extrap_gradient_data_shape, f"Expected shape {expected_extrap_gradient_data_shape} but got {extrap_gradient_data.shape}"
                         df.loc[year] = extrap_gradient_data[age_idx, :]
                     df.to_csv(os.path.join(
-                        results_dir, ("gradient-predicted-%d-" % age) + basename))
+                        results_dir, ("gradient-predicted-%d-" % age) + rates_basename))
                 logging.info("Saved gradients.")
         else:
             test_loss_value, test_bias_value = sess.run([test_loss, test_bias])
@@ -578,7 +595,7 @@ if __name__ == "__main__":
         logging.info("Setting random seed to %d", rand_seed)
         tf.set_random_seed(rand_seed)
 
-    restore = False
+    restore = True
     do_gradients = mode == "apply"
     save_checkpoints = mode == "apply"
 
