@@ -527,25 +527,26 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
             df.to_csv(os.path.join(results_dir, "predicted-" + rates_basename))
             logging.info("Saved extrapolation results.")
             if do_gradients:
-                extrap_input_years = years[-input_size:]
+                extrap_input_years_rates = years[-input_size:]
                 extrap_output_years = range(
                     max_input_year + 1, MAX_EXTRAPOLATION_YEAR_GRAD + 1)
-                extrap_output_years_features = range(
-                    max_input_year + 1 - input_size, MAX_EXTRAPOLATION_YEAR + 1)
+                extrap_input_years_features = range(
+                    max_input_year + 1 - input_size, MAX_EXTRAPOLATION_YEAR_GRAD + 1)
                 for age in AGES_GRAD:
                     age_idx = age - min(ages)  # Assumes ages have no gaps.
-                    df = pd.DataFrame(index=extrap_output_years,
-                                      columns=list(extrap_input_years) + [f"{label}-{year}" for year, label in itertools.product(extrap_output_years_features, features_labels)])
+                    grad_df = pd.DataFrame(index=extrap_output_years,
+                        columns=list(extrap_input_years_rates) + [f"{label}-{year}" for year, label in itertools.product(extrap_input_years_features, features_labels)])
                     for j, year in enumerate(extrap_output_years):
                         gradient_mask_data = np.zeros(
                             [num_ages, num_extrapolated_years], dtype=float)
                         gradient_mask_data[age_idx, j] = 1.0
-                        extrap_gradient_data = sess.run(extrap_gradient, feed_dict={
-                                                        gradient_mask: gradient_mask_data})
+                        extrap_gradient_data = sess.run(extrap_gradient, feed_dict={gradient_mask: gradient_mask_data})
                         expected_extrap_gradient_data_shape = (num_ages, input_size + total_num_features)
                         assert extrap_gradient_data.shape == expected_extrap_gradient_data_shape, f"Expected shape {expected_extrap_gradient_data_shape} but got {extrap_gradient_data.shape}"
-                        df.loc[year] = extrap_gradient_data[age_idx, :]
-                    df.to_csv(os.path.join(
+                        grad_df.loc[year] = extrap_gradient_data[age_idx, :len(grad_df.columns)]
+                    # Don't save columns which we know weren't used for calculation of gradients
+
+                    grad_df.to_csv(os.path.join(
                         results_dir, ("gradient-predicted-%d-" % age) + rates_basename))
                 logging.info("Saved gradients.")
         else:
