@@ -21,7 +21,7 @@ import logging
 import os
 import sys
 import time
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 # Replacement for tf.contrib.layers which were removed from TF 2.x.
 import numpy as np
@@ -64,6 +64,10 @@ MOVING_AVERAGE_WINDOW_SIZE = 100
 
 # How many times repeat the training and extrapolation when applying the model to full dataset
 NUM_APPLY_REPS = 1
+
+SINGLE_FORECAST_HORIZON = 1
+
+INCLUDE_FORECAST_HORIZON_FEATURES_IN_NETWORK_INPUTS = True
 
 
 # All hyperparameters together
@@ -134,12 +138,19 @@ def load_features(features_path: str, rates_years: Sequence[int]) -> pd.DataFram
     return features
 
 
-def create_sequence_queue(rates: np.ndarray, features: np.ndarray, sequence_length, batch_size=None, shuffle=True, num_epochs=None) -> Tuple[tf.Tensor, tf.Tensor]:
+def create_sequence_queue(
+        rates: np.ndarray,
+        features: np.ndarray,
+        sequence_length: int,
+        batch_size: Optional[int] = None,
+        shuffle: bool = True,
+        num_epochs: Optional[int] = None
+) -> Tuple[tf.Tensor, tf.Tensor]:
     """Creates a sequence queue from data for NA age groups and NY years.
 
     Args:
         rates: 2D float array with shape NA x NY.
-        features: 2D float array with shape NF x D, where D is the feature dimension and NF >= NY.
+        features: 2D float array with shape NF x D, where D is the feature dimension and NF >= NY. Must start in the same year as rates.
     """
     _, num_years = rates.shape
     if features.shape[0] > num_years:
@@ -157,8 +168,8 @@ def create_sequence_queue(rates: np.ndarray, features: np.ndarray, sequence_leng
         for j in range(max_num_sequences_per_age):
             rate_sequence = rates_for_age[j:(j + sequence_length)]
             assert rate_sequence.shape == (sequence_length,), rate_sequence.shape
+            # Use a flattened sequence of features, year after year.
             feature_sequence =  np.reshape(features[j:(j + sequence_length), :], (feature_dim * sequence_length,))
-            assert feature_sequence.shape == (feature_dim * sequence_length,), feature_sequence.shape
             if np.all(np.isfinite(rate_sequence)):
                 rate_data.append(rate_sequence)
                 feature_data.append(feature_sequence)
@@ -246,10 +257,11 @@ def build_rnn(cell_builder, rate_total_sequence, feature_total_sequence, input_s
     print(f"Sequence length: {sequence_length}, Input size: {input_size}, Output size: {output_size}")
     outputs = []
     #logits = []
-    rate_input_sequence = rate_total_sequence[:, :input_size]    
+    rate_input_sequence = rate_total_sequence[:, :input_size]
+    feature_input_sequence_length = input_size + (
+        SINGLE_FORECAST_HORIZON if INCLUDE_FORECAST_HORIZON_FEATURES_IN_NETWORK_INPUTS else 0)
     for i in range(output_size):
-        feature_input_sequence = feature_total_sequence[:, i:(input_size+i)]
-        assert feature_input_sequence.shape[1] == input_size, feature_input_sequence.shape
+        feature_input_sequence = feature_total_sequence[:, i:(feature_input_sequence_length+i)]
         #output, logit = cell_builder(rate_input_sequence, feature_input_sequence)
         output = cell_builder(rate_input_sequence, feature_input_sequence)
         assert output.shape[1] == 1, output
@@ -326,9 +338,8 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
     # We don't have enough data to use longer test sequences.
     test_sequence_length = train_sequence_length
 
-    cell_nn_builder = get_cell_neural_network_builder(num_layers, hidden_size,
-                                                      1, rates_to_inputs,
-                                                      scope_name="mortality_%s_%s" % (country, sex))
+    cell_nn_builder = get_cell_neural_network_builder(
+        num_layers, hidden_size, SINGLE_FORECAST_HORIZON, rates_to_inputs, scope_name="mortality_%s_%s" % (country, sex))
 
     logging.info("Country = %s, Sex = %s", country, sex)
     logging.info("%s", hyperparams)
@@ -351,8 +362,8 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
             test_indices = B
 
     if test_indices:
-        test_rate_sequence, test_feature_sequence = create_sequence_queue(mortality_rates[test_indices], features, test_sequence_length, batch_size=None,
-                                              shuffle=False)
+        test_rate_sequence, test_feature_sequence = create_sequence_queue(
+            mortality_rates[test_indices], features, test_sequence_length, batch_size=None, shuffle=False)
         # Test output and target are rates in [0, 1] range
         #test_outputs, test_logits = build_rnn(cell_nn_builder, test_sequence, input_size=input_size)
         test_outputs = build_rnn(
@@ -595,7 +606,7 @@ if __name__ == "__main__":
         logging.info("Setting random seed to %d", rand_seed)
         tf.set_random_seed(rand_seed)
 
-    restore = True
+    restore = False
     do_gradients = mode == "apply"
     save_checkpoints = mode == "apply"
 
