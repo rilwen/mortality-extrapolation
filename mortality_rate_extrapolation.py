@@ -160,6 +160,8 @@ def create_sequence_queue(
     if sequence_length > num_years:
         raise ValueError("Total sequence length too large")
     feature_dim = features.shape[1]
+    print(f"Feature dim == {feature_dim}")
+    print(f"Sequence length == {sequence_length}")
     max_num_sequences_per_age = num_years - sequence_length + 1
     rate_data = []
     feature_data = []
@@ -248,7 +250,7 @@ def get_cell_neural_network_builder(*args, **kwargs):
     return lambda rates, features: build_cell_neural_network(rates, features, *args, **kwargs)
 
 
-def build_rnn(cell_builder, rate_total_sequence, feature_total_sequence, input_size=None, output_size=None):     
+def build_rnn(cell_builder, rate_total_sequence, feature_total_sequence, feature_dim, input_size=None, output_size=None):     
     _, sequence_length = rate_total_sequence.shape    
     if input_size is None:
         input_size = sequence_length
@@ -258,10 +260,12 @@ def build_rnn(cell_builder, rate_total_sequence, feature_total_sequence, input_s
     outputs = []
     #logits = []
     rate_input_sequence = rate_total_sequence[:, :input_size]
-    feature_input_sequence_length = input_size + (
-        SINGLE_FORECAST_HORIZON if INCLUDE_FORECAST_HORIZON_FEATURES_IN_NETWORK_INPUTS else 0)
+    feature_input_sequence_length = (input_size + (
+        SINGLE_FORECAST_HORIZON if INCLUDE_FORECAST_HORIZON_FEATURES_IN_NETWORK_INPUTS else 0)) * feature_dim
     for i in range(output_size):
-        feature_input_sequence = feature_total_sequence[:, i:(feature_input_sequence_length+i)]
+        feature_idx_start = i * feature_dim
+        feature_input_sequence = feature_total_sequence[:, feature_idx_start:(
+            feature_input_sequence_length + feature_idx_start)]
         #output, logit = cell_builder(rate_input_sequence, feature_input_sequence)
         output = cell_builder(rate_input_sequence, feature_input_sequence)
         assert output.shape[1] == 1, output
@@ -367,14 +371,14 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
         # Test output and target are rates in [0, 1] range
         #test_outputs, test_logits = build_rnn(cell_nn_builder, test_sequence, input_size=input_size)
         test_outputs = build_rnn(
-            cell_nn_builder, test_rate_sequence, test_feature_sequence, input_size=input_size)
+            cell_nn_builder, test_rate_sequence, test_feature_sequence, features_dim, input_size=input_size)
         test_targets = test_rate_sequence[:, input_size:]
 
     train_rate_sequence, train_feature_sequence = create_sequence_queue(
         mortality_rates[train_indices], features, train_sequence_length, batch_size=16)
     #train_outputs, train_logits = build_rnn(cell_nn_builder, train_rate_sequence, train_feature_sequence, input_size=input_size)
     train_outputs = build_rnn(
-        cell_nn_builder, train_rate_sequence, train_feature_sequence, input_size=input_size)
+        cell_nn_builder, train_rate_sequence, train_feature_sequence, features_dim, input_size=input_size)
     train_targets = train_rate_sequence[:, input_size:]
 
     if do_extrapolation:
@@ -393,7 +397,7 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
         print(f"Rates: {extrap_input_rates.shape}")
         print(f"Features: {extrap_input_features.shape}")
         extrap_outputs = build_rnn(
-            cell_nn_builder, extrap_input_rates, extrap_input_features, output_size=num_extrapolated_years)
+            cell_nn_builder, extrap_input_rates, extrap_input_features, features_dim, output_size=num_extrapolated_years)
         assert extrap_outputs.shape == (
             num_ages, num_extrapolated_years), extrap_outputs
         if do_gradients:
