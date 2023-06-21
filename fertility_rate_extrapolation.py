@@ -109,8 +109,7 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     """
     rates_df = dm.load_data(rates_path)
     if BY_PERIOD:
-        df = dm.cohort_to_period_rates(df)
-    rates_df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
+        rates_df = dm.cohort_to_period_rates(rates_df)    
     ages = rates_df.index
     years = rates_df.columns
     features_dfs = []
@@ -169,7 +168,7 @@ def create_sequence_queue(
         features = features[:num_years, :]
     assert features.shape[0] == num_years, "Feature and rates shape mismatch!"
     if sequence_length > num_years:
-        raise ValueError("Total sequence length too large")
+        raise ValueError(f"Total sequence length too large: {sequence_length} > {num_years}")
     feature_dim = features.shape[1]
     print(f"Feature dim == {feature_dim}")
     print(f"Sequence length == {sequence_length}")
@@ -311,7 +310,7 @@ def run(mode, run_idx, hyperparams, restore=False, do_gradients=True, save_check
         save_checkpoints: Whether to save checkpoints with the model.
     """
     rates_to_inputs = get_input_transformation_function(hyperparams.trans_name)
-    rates_basename = "cohort_fertility_rates_full_from15_to2019.csv"
+    rates_basename = "fertility-cohort-2019.csv"
     rates_path = os.path.join("sources", rates_basename)    
     years, ages, fertility_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
     if hyperparams.trans_name in ["log", "logit"]:
@@ -594,7 +593,7 @@ def get_input_transformation_function(name):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) <= 3:
+    if len(sys.argv) <= 1:
         print(
             "Run as %s <mode> [first_rep_index] [random_seed]" % sys.argv[0])
         sys.exit()

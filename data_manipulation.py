@@ -12,25 +12,25 @@ def load_data(path):
 def cohort_to_period_rates(cohort_rates):
     """Cohort rates index = year of birth
     Cohort rates columns = age at giving birth"""
-    min_age = cohort_rates.columns.min()
-    min_year_birth = cohort_rates.index.min()
-    period_years = cohort_rates.index + min_age
-    period_rates = pd.DataFrame(np.nan, index=period_years, columns=cohort_rates.columns)
-    for age in cohort_rates.columns:
-        values = cohort_rates[age].dropna().values
-        period_rates.loc[(min_year_birth + age):, age] = values
+    min_age = cohort_rates.index.min()
+    min_year_birth = cohort_rates.columns.min()
+    period_years = cohort_rates.columns + min_age
+    period_rates = pd.DataFrame(np.nan, columns=period_years, index=cohort_rates.index)
+    for age in cohort_rates.index:
+        values = cohort_rates.loc[age].dropna().values
+        period_rates.loc[age, (min_year_birth + age):] = values
     return period_rates
     
 
 def period_to_cohort_rates(period_rates):
     """Period rates index = period year
     Cohort rates columns = age at giving birth"""
-    min_age = period_rates.columns.min()
-    years_of_birth = period_rates.index - min_age
-    cohort_rates = pd.DataFrame(np.nan, index=years_of_birth, columns=period_rates.columns)
-    for age in period_rates.columns:
+    min_age = period_rates.index.min()
+    years_of_birth = period_rates.columns - min_age
+    cohort_rates = pd.DataFrame(np.nan, columns=years_of_birth, index=period_rates.index)
+    for age in period_rates.index:
         known_period_rates = period_rates[age].dropna()
-        min_year = known_period_rates.index.min()
-        max_year = known_period_rates.index.max()
-        cohort_rates.loc[(min_year - age):(max_year - age), age] = known_period_rates.values
+        min_year = known_period_rates.columns.min()
+        max_year = known_period_rates.columns.max()
+        cohort_rates.loc[age, (min_year - age):(max_year - age)] = known_period_rates.values
     return cohort_rates
