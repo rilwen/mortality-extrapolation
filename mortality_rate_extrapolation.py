@@ -29,6 +29,8 @@ import pandas as pd
 from tf_slim.layers import layers as _layers
 import tensorflow.compat.v1 as tf
 
+import data_manipulation as dm
+
 
 # Force the code to run on CPU (faster because our data is small).
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -99,9 +101,10 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
         Features values
         Sequence of feature labels
     """
+    rates_df = dm.load_data(rates_path)
     rates_df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
-    ages = rates_df.index.astype(int)
-    years = rates_df.columns.astype(int)
+    ages = rates_df.index
+    years = rates_df.columns
     features_dfs = []
     for features_path in features_paths:
         features_dfs.append(load_features(features_path, years))
