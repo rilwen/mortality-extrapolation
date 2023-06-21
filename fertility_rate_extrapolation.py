@@ -1,4 +1,4 @@
-"""Extrapolates period mortality rates using a neural network. (C) Averisera Ltd 2017-2020.
+"""Extrapolates period Fertility rates using a neural network. (C) Averisera Ltd 2017-2020.
 
 NN is trained to extrapolate a sequence of rates r_0, ..., r_{N-1}, returning r_{N+K-1}.
 
@@ -46,6 +46,8 @@ MAX_EXTRAPOLATION_YEAR_GRAD = 2100
 # Ages for which we need the gradients of extrapolated rates.
 AGES_GRAD = [0, 5, 10, 15, 20, 30, 45, 60, 65, 75, 85, 90, 100]
 
+BIRTH_RATE_BASIS = 1000.0
+
 # Maximum year for historical data.
 MAX_YEAR_HIST = 2019
 
@@ -53,13 +55,17 @@ MAX_YEAR_HIST = 2019
 VERSION = "3"
 
 # Where to save results
-RESULTS_BASE = "mort_results%d_%s" % (MAX_YEAR_HIST, VERSION)
+RESULTS_BASE = "fert_results%d_%s" % (MAX_YEAR_HIST, VERSION)
 
 # Where to save TensorFlow checkpoints
-CHECKPOINTS_BASE = "mort_checkpoints%d_%s" % (MAX_YEAR_HIST, VERSION)
+CHECKPOINTS_BASE = "fert_checkpoints%d_%s" % (MAX_YEAR_HIST, VERSION)
 
 # How many extrapolations during training
 N_TRAIN = 10
+
+# Whether to extrapolate age group fertility rate as function of period year (as opposed to cohort year of birth).
+# Must be true.
+BY_PERIOD = True
 
 # Loss/bias MA window size in steps (for learning rate decay)
 MOVING_AVERAGE_WINDOW_SIZE = 100
@@ -97,11 +103,13 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     Returns:
         Sequence of years with rates
         Sequence of age groups with rates
-        Mortality rates values
+        Fertility rates values
         Features values
         Sequence of feature labels
     """
     rates_df = dm.load_data(rates_path)
+    if BY_PERIOD:
+        df = dm.cohort_to_period_rates(df)
     rates_df = pd.read_csv(rates_path, parse_dates=False, index_col=0)
     ages = rates_df.index
     years = rates_df.columns
@@ -110,7 +118,7 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
         features_dfs.append(load_features(features_path, years))
     features_df = pd.concat(features_dfs, axis=0)
     features_df.to_csv("features.csv")
-    return years, ages, rates_df.values, features_df.values, features_df.columns
+    return years, ages, rates_df.values / BIRTH_RATE_BASIS, features_df.values, features_df.columns
 
 
 def load_features(features_path: str, rates_years: Sequence[int]) -> pd.DataFrame:
@@ -293,35 +301,32 @@ def split_indices_into_ABC(n, k):
     return A, B, C
 
 
-def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=True, save_checkpoints=False):
+def run(mode, run_idx, hyperparams, restore=False, do_gradients=True, save_checkpoints=False):
     """Args:
         mode: "train", "test" or "apply". Data are divided into sets A (60%), B (20%) and C(20%).
         run_idx: Index of the run (for CI calculations).
-        country: "uk", "ew", ...
-        sex: "male" or "female"
         hyperparams: Hyperparameters tuple
         restore: Whether to load the trained model from disk.
         do_gradients: Whether to save gradients of outputs over inputs.
         save_checkpoints: Whether to save checkpoints with the model.
     """
     rates_to_inputs = get_input_transformation_function(hyperparams.trans_name)
-    rates_basename = "%s-%s-mortality-period-qx-%d.csv" % (
-        country, sex, MAX_YEAR_HIST)
+    rates_basename = "cohort_fertility_rates_full_from15_to2019.csv"
     rates_path = os.path.join("sources", rates_basename)    
-    years, ages, mortality_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
+    years, ages, fertility_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
     if hyperparams.trans_name in ["log", "logit"]:
         # Zero rates are not handled well when using those input transformations.
-        mortality_rates = np.clip(mortality_rates, 1e-5, None)    
-    logging.info("Mortality rates shape: %s", mortality_rates.shape)
-    logging.debug("Mortality rates values: %s", mortality_rates)
+        fertility_rates = np.clip(fertility_rates, 1e-5, None)    
+    logging.info("Fertility rates shape: %s", fertility_rates.shape)
+    logging.debug("Fertility rates values: %s", fertility_rates)
     logging.debug("Features shape: %s", features.shape)
     logging.debug("Years == %s", years)
     logging.debug("Ages == %s", ages)
     logging.info("Features labels == %s", features_labels)
     num_ages = len(ages)
     num_years = len(years)
-    assert num_ages == mortality_rates.shape[0]
-    assert num_years == mortality_rates.shape[1]
+    assert num_ages == fertility_rates.shape[0]
+    assert num_years == fertility_rates.shape[1]
     assert features.shape[0] == MAX_EXTRAPOLATION_YEAR - min(years) + 1, (features.shape, min(years), MAX_EXTRAPOLATION_YEAR)
     features_dim = features.shape[1]
     max_input_year = max(years)    
@@ -346,9 +351,8 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
     test_sequence_length = train_sequence_length
 
     cell_nn_builder = get_cell_neural_network_builder(
-        num_layers, hidden_size, SINGLE_FORECAST_HORIZON, rates_to_inputs, scope_name="mortality_%s_%s" % (country, sex))
+        num_layers, hidden_size, SINGLE_FORECAST_HORIZON, rates_to_inputs, scope_name="fertility")
 
-    logging.info("Country = %s, Sex = %s", country, sex)
     logging.info("%s", hyperparams)
     logging.info("Saving in directories %s and %s",
                  results_dir, checkpoints_dir)
@@ -370,7 +374,7 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
 
     if test_indices:
         test_rate_sequence, test_feature_sequence = create_sequence_queue(
-            mortality_rates[test_indices], features, test_sequence_length, batch_size=None, shuffle=False)
+            fertility_rates[test_indices], features, test_sequence_length, batch_size=None, shuffle=False)
         # Test output and target are rates in [0, 1] range
         #test_outputs, test_logits = build_rnn(cell_nn_builder, test_sequence, input_size=input_size)
         test_outputs = build_rnn(
@@ -378,7 +382,7 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
         test_targets = test_rate_sequence[:, input_size:]
 
     train_rate_sequence, train_feature_sequence = create_sequence_queue(
-        mortality_rates[train_indices], features, train_sequence_length, batch_size=16)
+        fertility_rates[train_indices], features, train_sequence_length, batch_size=16)
     #train_outputs, train_logits = build_rnn(cell_nn_builder, train_rate_sequence, train_feature_sequence, input_size=input_size)
     train_outputs = build_rnn(
         cell_nn_builder, train_rate_sequence, train_feature_sequence, features_dim, input_size=input_size)
@@ -387,9 +391,9 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
     if do_extrapolation:
         # Extrapolate last input_size rates from every age group.
         # Do it age-group-by-age-group to speed up calculation of gradients.
-        extrap_input_rates = tf.constant(mortality_rates[:, -input_size:])
+        extrap_input_rates = tf.constant(fertility_rates[:, -input_size:])
         num_extrapolated_years = MAX_EXTRAPOLATION_YEAR - max_input_year
-        extrap_input_features_data = features[mortality_rates.shape[1]-input_size:, :]  # has dimension num_extrapolated_years x features_dimension
+        extrap_input_features_data = features[fertility_rates.shape[1]-input_size:, :]  # has dimension num_extrapolated_years x features_dimension
         assert extrap_input_features_data.shape == (num_extrapolated_years + input_size, features_dim), f"{extrap_input_features_data.shape} != {(num_extrapolated_years, features_dim)}"
         total_num_features = np.prod(extrap_input_features_data.shape)
         extrap_input_features_data = np.reshape(extrap_input_features_data, (1, total_num_features))  # All features from the same year are together
@@ -522,11 +526,15 @@ def run(mode, run_idx, country, sex, hyperparams, restore=False, do_gradients=Tr
             df = pd.DataFrame(index=ages, columns=extrap_years, dtype=float)
             df.index.name = "Age"
             for i, year in enumerate(range(min_year, max_input_year + 1)):
-                df[year] = mortality_rates[:, i]
+                df[year] = fertility_rates[:, i]
             extrap_output_data = sess.run(extrap_outputs)
             logging.debug("Extrapolation outputs: %s", extrap_output_data)
             for i, year in enumerate(range(max_input_year + 1, MAX_EXTRAPOLATION_YEAR + 1)):
                 df[year] = extrap_output_data[:, i]
+            if BY_PERIOD:
+                df = dm.period_to_cohort_rates(df)
+            # Back to basis
+            df *= BIRTH_RATE_BASIS
             df.to_csv(os.path.join(results_dir, "predicted-" + rates_basename))
             logging.info("Saved extrapolation results.")
             if do_gradients:
@@ -588,11 +596,9 @@ def get_input_transformation_function(name):
 if __name__ == "__main__":
     if len(sys.argv) <= 3:
         print(
-            "Run as %s <country> <sex> <mode> [first_rep_index] [random_seed]" % sys.argv[0])
+            "Run as %s <mode> [first_rep_index] [random_seed]" % sys.argv[0])
         sys.exit()
-    country = sys.argv[1]
-    sex = sys.argv[2]
-    mode = sys.argv[3]
+    mode = sys.argv[1]
 
     if len(sys.argv) > 4:
         first_rep_index = int(sys.argv[4])
@@ -601,8 +607,8 @@ if __name__ == "__main__":
 
     nbr_steps_train = 50000
 
-    log_filename = 'mort_extrapolation_%s_%s_%s_%s_%d.log' % (
-        VERSION, country, sex, mode, nbr_steps_train)
+    log_filename = 'fert_extrapolation_%s_%s_%d.log' % (
+        VERSION, mode, nbr_steps_train)
     print("Logging to %s" % log_filename)
     logging.basicConfig(filename=log_filename,
                         level=logging.INFO,
@@ -619,24 +625,17 @@ if __name__ == "__main__":
     save_checkpoints = mode == "apply"
 
     #optimal_hyperparams = Hyperparameters(trans_name='exp', n_loss=10, delta_steps=3000, nbr_steps_train=39001, initial_learning_rate=0.001, learning_rate_adjustment_factor=0.9, batch_size=32, input_size=40, num_layers=4, hidden_size=64, clip_gradient=True)
-    if country == "ew":
-        if sex == "female":
-            optimal_hyperparams = Hyperparameters(trans_name='logit', n_loss=10, delta_steps=3000, nbr_steps_train=50000, initial_learning_rate=1e-4,
-                                                  learning_rate_adjustment_factor=0.5, batch_size=32, input_size=40, num_layers=5, hidden_size=256, clip_gradient=False)
-        else:
-            optimal_hyperparams = Hyperparameters(trans_name='logit', n_loss=10, delta_steps=3000, nbr_steps_train=50000, initial_learning_rate=1e-4,
-                                                  learning_rate_adjustment_factor=0.5, batch_size=16, input_size=40, num_layers=5, hidden_size=512, clip_gradient=False)
-    else:
-        optimal_hyperparams = None
+    optimal_hyperparams = Hyperparameters(trans_name='logit', n_loss=10, delta_steps=3000, nbr_steps_train=50000, initial_learning_rate=1e-4, learning_rate_adjustment_factor=0.9,
+                                          batch_size=64, input_size=40, num_layers=7, hidden_size=256, clip_gradient=False)
 
     if mode == "train":
         trans_names = ["logit"]
         n_loss_values = [10]
         delta_steps_values = [3000]
         nbr_steps_train_values = [nbr_steps_train]
-        initial_learning_rates = [1e-3, 1e-4]
-        learning_rate_adjustment_factors = [0.5, 0.9]
-        batch_sizes = [16, 32]
+        initial_learning_rates = [1e-4]
+        learning_rate_adjustment_factors = [0.9]
+        batch_sizes = [64]
         input_sizes = [40]
         num_layers_values = [5, 6, 7]
         hidden_sizes = [128, 256, 512]
@@ -648,11 +647,10 @@ if __name__ == "__main__":
         logging.info("Checking %d hyperparameter combinations.",
                      len(hyperparams))
         scan_results = []
-        start_hp = Hyperparameters(trans_name='logit', n_loss=10, delta_steps=3000, nbr_steps_train=50000, initial_learning_rate=0.0001,
-                                   learning_rate_adjustment_factor=0.9, batch_size=32, input_size=40, num_layers=6, hidden_size=512, clip_gradient=False)
+        start_hp = None
         ensure_dir(RESULTS_BASE)
         scan_results_filename = os.path.join(
-            RESULTS_BASE, "scan_results_%s_%s_%d.csv" % (country, sex, nbr_steps_train))
+            RESULTS_BASE, "scan_results_%d_%s.csv" % (nbr_steps_train, clip_gradient))
         if start_hp is not None:
             logging.warn(
                 "!!Skipping all hyperparameter tuples until this one: %s", start_hp)
@@ -672,7 +670,7 @@ if __name__ == "__main__":
                                           batch_size=batch_size, input_size=input_size, num_layers=num_layers,
                                           hidden_size=hidden_size, clip_gradient=clip_gradient)
             time0 = time.time()
-            test_stats = run(mode, run_idx, country, sex, hyperparams, restore=restore, do_gradients=do_gradients,
+            test_stats = run(mode, run_idx, hyperparams, restore=restore, do_gradients=do_gradients,
                              save_checkpoints=save_checkpoints)
             time1 = time.time()
             delta_time = time1 - time0
@@ -689,10 +687,10 @@ if __name__ == "__main__":
             logging.info("Saved latest scan results to %s",
                          scan_results_filename)
     elif mode == "test":
-        run(mode, 0, country, sex, optimal_hyperparams, restore=restore,
+        run(mode, 0, optimal_hyperparams, restore=restore,
             do_gradients=do_gradients, save_checkpoints=save_checkpoints)
     else:
         for run_idx in range(first_rep_index, NUM_APPLY_REPS):
-            run(mode, run_idx, country, sex, optimal_hyperparams, restore=restore, do_gradients=do_gradients,
+            run(mode, run_idx, optimal_hyperparams, restore=restore, do_gradients=do_gradients,
                 save_checkpoints=save_checkpoints)
     logging.info("--> FINISHED <--")
