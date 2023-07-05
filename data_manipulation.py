@@ -29,8 +29,8 @@ def period_to_cohort_rates(period_rates):
     years_of_birth = period_rates.columns - min_age
     cohort_rates = pd.DataFrame(np.nan, columns=years_of_birth, index=period_rates.index)
     for age in period_rates.index:
-        known_period_rates = period_rates[age].dropna()
-        min_year = known_period_rates.columns.min()
-        max_year = known_period_rates.columns.max()
+        known_period_rates = period_rates.loc[age].dropna()
+        min_year = known_period_rates.index.min()
+        max_year = known_period_rates.index.max()
         cohort_rates.loc[age, (min_year - age):(max_year - age)] = known_period_rates.values
     return cohort_rates

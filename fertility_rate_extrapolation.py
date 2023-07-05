@@ -116,6 +116,7 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     for features_path in features_paths:
         features_dfs.append(load_features(features_path, years))
     features_df = pd.concat(features_dfs, axis=0)
+    # features_df.loc[:, :] = 0  # Zero the features
     features_df.to_csv("features.csv")
     return years, ages, rates_df.values / BIRTH_RATE_BASIS, features_df.values, features_df.columns
 
