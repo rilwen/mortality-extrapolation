@@ -44,7 +44,7 @@ MAX_EXTRAPOLATION_YEAR = 2200
 # Maximum year for which we need the gradients of extrapolated rates.
 MAX_EXTRAPOLATION_YEAR_GRAD = 2100
 # Ages for which we need the gradients of extrapolated rates.
-AGES_GRAD = [0, 5, 10, 15, 20, 30, 45, 60, 65, 75, 85, 90, 100]
+AGES_GRAD = [15, 20, 25, 30, 35, 40, 45]
 
 BIRTH_RATE_BASIS = 1000.0
 
