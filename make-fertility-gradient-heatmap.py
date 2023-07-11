@@ -12,7 +12,7 @@ VERSION = 3
 RESULTS_DIR = "fert_results%d_%d" % (LAST_KNOWN_YEAR, VERSION)
 INPUT_SIZE = 40
 
-def save_heatmap(df, filename, sex, age,vmin, vmax):
+def save_heatmap(df, filename, age, vmin, vmax):
     fig, ax = plt.subplots(figsize=(20, 5))
     ax = sns.heatmap(df, yticklabels=10, xticklabels=5, vmin=vmin, vmax=vmax, cmap="copper", ax=ax)
     ax.set_xlabel("inputs (historical fertility rates & other features)")
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         # values = df.values.flatten()
         # min_grad = min(np.amin(values), min_grad)
         # max_grad = max(np.amax(values), max_grad)
-        print("Sex=%s, Age=%d" % (sex, age))
+        print("Age=%d" % age)
         # print("Gradient statistics: %s" % pd.Series(values).describe())
     # for sex, age in CASES:
     #     df = gradients[(sex, age)]

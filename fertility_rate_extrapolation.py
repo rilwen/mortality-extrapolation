@@ -54,11 +54,17 @@ MAX_YEAR_HIST = 2019
 # Version string
 VERSION = "3"
 
+# Zero the features!
+ZERO_FEATURES = True
+
+# Prefix for created directory names
+DIR_PREFIX = "fert0feat" if ZERO_FEATURES else "fert"
+
 # Where to save results
-RESULTS_BASE = "fert_results%d_%s" % (MAX_YEAR_HIST, VERSION)
+RESULTS_BASE = f"{DIR_PREFIX}_results{MAX_YEAR_HIST}_{VERSION}"
 
 # Where to save TensorFlow checkpoints
-CHECKPOINTS_BASE = "fert_checkpoints%d_%s" % (MAX_YEAR_HIST, VERSION)
+CHECKPOINTS_BASE = f"{DIR_PREFIX}_checkpoints{MAX_YEAR_HIST}_{VERSION}"
 
 # How many extrapolations during training
 N_TRAIN = 10
@@ -116,7 +122,8 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     for features_path in features_paths:
         features_dfs.append(load_features(features_path, years))
     features_df = pd.concat(features_dfs, axis=0)
-    # features_df.loc[:, :] = 0  # Zero the features
+    if ZERO_FEATURES:
+        features_df.loc[:, :] = 0.0
     features_df.to_csv("features.csv")
     return years, ages, rates_df.values / BIRTH_RATE_BASIS, features_df.values, features_df.columns
 
@@ -607,8 +614,8 @@ if __name__ == "__main__":
 
     nbr_steps_train = 50000
 
-    log_filename = 'fert_extrapolation_%s_%s_%d.log' % (
-        VERSION, mode, nbr_steps_train)
+    log_filename = '%s_extrapolation_%s_%s_%d.log' % (
+        DIR_PREFIX, VERSION, mode, nbr_steps_train)
     print("Logging to %s" % log_filename)
     logging.basicConfig(filename=log_filename,
                         level=logging.INFO,
