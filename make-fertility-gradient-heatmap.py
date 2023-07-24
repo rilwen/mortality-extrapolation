@@ -9,7 +9,7 @@ CASES = [15, 20, 25, 30, 35, 40, 45]
 MAX_YEAR = 2061
 LAST_KNOWN_YEAR = 2019
 VERSION = 3
-RESULTS_DIR = "fert_results%d_%d" % (LAST_KNOWN_YEAR, VERSION)
+RESULTS_DIR = "fert0feat_results%d_%d" % (LAST_KNOWN_YEAR, VERSION)
 INPUT_SIZE = 40
 
 def save_heatmap(df, filename, age, vmin, vmax):
@@ -32,7 +32,7 @@ if __name__ == "__main__":
                          index_col=0)
         df = df.loc[:MAX_YEAR]
         df.columns = df.columns.astype(str)
-        save_heatmap(df, "%s/gradient-heatmap-log-log-%d-%d" % (RESULTS_DIR, age, LAST_KNOWN_YEAR), age, None, None)
+        save_heatmap(df, "%s/gradient-heatmap-%d-%d" % (RESULTS_DIR, age, LAST_KNOWN_YEAR), age, None, None)
         plt.close()
         # r = pd.read_csv("%s/merged_mortality_ew_%s_%d.csv" % (RESULTS_DIR, sex, LAST_KNOWN_YEAR), index_col=0, delimiter="\t")
         # r.columns = r.columns.astype(int)
