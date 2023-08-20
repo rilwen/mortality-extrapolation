@@ -54,14 +54,14 @@ MAX_YEAR_HIST = 2019
 # Version string
 VERSION = "3"
 
-# Name of the file with features data WITHOUT the .csv extension
-FEATURES_FILENAME_WITHOUT_EXTENSION = "features"
-
 # Zero the features!
-ZERO_FEATURES = True
+ZERO_FEATURES = False
+
+# Filenames in sources/ directory with feature data.
+FEATURE_SOURCE_FILES = ["gender-pay-gap.csv"]
 
 # Prefix for created directory names
-DIR_PREFIX_PARTS = ["fert", FEATURES_FILENAME_WITHOUT_EXTENSION]
+DIR_PREFIX_PARTS = ["fert"] + FEATURE_SOURCE_FILES
 if ZERO_FEATURES:
     DIR_PREFIX_PARTS.append("zeroed")
 DIR_PREFIX = "_".join(DIR_PREFIX_PARTS)
@@ -128,9 +128,7 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     for features_path in features_paths:
         features_dfs.append(load_features(features_path, years))
     features_df = pd.concat(features_dfs, axis=0)
-    if ZERO_FEATURES:
-        features_df.loc[:, :] = 0.0
-    features_df.to_csv(FEATURES_FILENAME_WITHOUT_EXTENSION + ".csv")
+    features_df.to_csv("features.csv")
     return years, ages, rates_df.values / BIRTH_RATE_BASIS, features_df.values, features_df.columns
 
 
@@ -326,7 +324,7 @@ def run(mode, run_idx, hyperparams, restore=False, do_gradients=True, save_check
     rates_to_inputs = get_input_transformation_function(hyperparams.trans_name)
     rates_basename = "fertility-cohort-2019.csv"
     rates_path = os.path.join("sources", rates_basename)    
-    years, ages, fertility_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", "gender-pay-gap.csv")])
+    years, ages, fertility_rates, features, features_labels = load_data(rates_path, [os.path.join("sources", filename) for filename in FEATURE_SOURCE_FILES])
     if hyperparams.trans_name in ["log", "logit"]:
         # Zero rates are not handled well when using those input transformations.
         fertility_rates = np.clip(fertility_rates, 1e-5, None)    
@@ -587,6 +585,8 @@ def run(mode, run_idx, hyperparams, restore=False, do_gradients=True, save_check
 def ensure_dir(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
+    else:
+        print(f"Directory {directory} alread exists!")
 
 
 def _logit(p):
