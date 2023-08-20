@@ -54,6 +54,9 @@ MAX_YEAR_HIST = 2019
 # Version string
 VERSION = "3"
 
+# Name of the file with features data WITHOUT the .csv extension
+FEATURES_FILENAME_WITHOUT_EXTENSION = "features"
+
 # Zero the features!
 ZERO_FEATURES = True
 
@@ -124,7 +127,7 @@ def load_data(rates_path: str, features_paths: Sequence[str]) -> Tuple[Sequence[
     features_df = pd.concat(features_dfs, axis=0)
     if ZERO_FEATURES:
         features_df.loc[:, :] = 0.0
-    features_df.to_csv("features.csv")
+    features_df.to_csv(FEATURES_FILENAME_WITHOUT_EXTENSION + ".csv")
     return years, ages, rates_df.values / BIRTH_RATE_BASIS, features_df.values, features_df.columns
 
 
