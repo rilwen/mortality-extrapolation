@@ -61,7 +61,10 @@ FEATURES_FILENAME_WITHOUT_EXTENSION = "features"
 ZERO_FEATURES = True
 
 # Prefix for created directory names
-DIR_PREFIX = "fert0feat" if ZERO_FEATURES else "fert"
+DIR_PREFIX_PARTS = ["fert", FEATURES_FILENAME_WITHOUT_EXTENSION]
+if ZERO_FEATURES:
+    DIR_PREFIX_PARTS.append("zeroed")
+DIR_PREFIX = "_".join(DIR_PREFIX_PARTS)
 
 # Where to save results
 RESULTS_BASE = f"{DIR_PREFIX}_results{MAX_YEAR_HIST}_{VERSION}"
