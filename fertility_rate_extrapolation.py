@@ -613,8 +613,8 @@ if __name__ == "__main__":
         sys.exit()
     mode = sys.argv[1]
 
-    if len(sys.argv) > 4:
-        first_rep_index = int(sys.argv[4])
+    if len(sys.argv) > 2:
+        first_rep_index = int(sys.argv[2])
     else:
         first_rep_index = 0
 
@@ -628,8 +628,8 @@ if __name__ == "__main__":
                         format='%(asctime)s %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S')
 
-    if len(sys.argv) > 5:
-        rand_seed = int(sys.argv[5])
+    if len(sys.argv) > 3:
+        rand_seed = int(sys.argv[3])
         logging.info("Setting random seed to %d", rand_seed)
         tf.set_random_seed(rand_seed)
 
