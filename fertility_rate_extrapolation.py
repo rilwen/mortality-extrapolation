@@ -614,7 +614,7 @@ if __name__ == "__main__":
     mode = sys.argv[1]
 
     if len(sys.argv) > 2:
-        first_rep_index = int(sys.argv[4])
+        first_rep_index = int(sys.argv[2])
     else:
         first_rep_index = 0
 
@@ -665,7 +665,7 @@ if __name__ == "__main__":
         scan_results_filename = os.path.join(
             RESULTS_BASE, "scan_results_%d_%s.csv" % (nbr_steps_train, clip_gradient))
         if start_hp is not None:
-            logging.warning(
+            logging.warn(
                 "!!Skipping all hyperparameter tuples until this one: %s", start_hp)
         for run_idx, hp in enumerate(hyperparams):
             if start_hp is not None:
