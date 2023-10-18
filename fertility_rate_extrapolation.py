@@ -609,7 +609,18 @@ def get_input_transformation_function(name):
 if __name__ == "__main__":
     if len(sys.argv) <= 1:
         print(
-            "Run as %s <mode> [first_rep_index] [random_seed]" % sys.argv[0])
+            """Run as %s <mode> [first_rep_index] [random_seed]
+
+where <mode> is one of: "train", "test", "apply".
+
+"train": trains the model on the train set and evaluates it on the validation set, scanning a range of hyperparameter combinations. Use it to find the best hyperparameters.
+"test": trains the model on the train+validation set and evaluates it on the test set, using the (defined in the code) optimal hyperparameters.
+"apply": trains the model on the entire dataset, using the optimal hyperparameters, and uses it to extrapolate fertility rates. Depending on the NUM_APPLY_REPS constant, this can be done 1 or more iterations. The result of each iteration is saved in a separate directory.
+
+If [first_rep_index] is specified and mode == "apply", the iterations will be performed from this index onwards. This is useful if the program was interrupted and you want to continue from where you left off.
+
+If [random_seed] is specified, the random number generator will be seeded with this number. Useful for reproducibility.
+""" % sys.argv[0])
         sys.exit()
     mode = sys.argv[1]
 
